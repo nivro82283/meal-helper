@@ -1,11 +1,14 @@
+import json
 import random
+from pathlib import Path
 
 import requests
-from flask import Flask, render_template, jsonify, abort
+from flask import Flask, render_template, jsonify, abort, request, redirect, url_for
 
 app = Flask(__name__)
 
 API_URL = "https://www.themealdb.com/api/json/v1/1"
+PERSONAL_FILE = Path(__file__).with_name("personal_recipes.json")
 
 
 def get_recipe_for(main_ingredient: str) -> dict:
@@ -75,22 +78,107 @@ def recipe_json(ingredient):
     return jsonify(meal)
 
 
-# BONUS:
-# Add these endpoints:
-# 1. "/personal" with POST method:
-#    - Receives a recipe JSON in the request body, and adds it to a list of personal recipes.
-#    - Make the list persistent in a JSON file.
-#    - Redirect the client to the page of the newly saved recipe.
-#    - Hint: `flask.request`
-#    - Hint 2: `flask.redirect`
-#    - Hint 3: Use `requests` to check if it works.
-# 2. "/personal/<name>/<int:json>" with GET method:
-#    - Returns the recipe page if `json == 0`, or a JSON if `json == 1`.
-#    - Return a 404 response for flag values other than 0 or 1.
-# 3. "/personal/<name>" with DELETE method:
-#    - Delete the recipe with the given name
-# 4. "/personal/all" with GET method:
-#    - Returns a JSON with the list of personal recipes.
+def load_personal() -> list:
+    """
+    Reads the personal recipes list from the JSON file (empty list if there is no file yet).
+    """
+    if not PERSONAL_FILE.exists():
+        return []
+    with PERSONAL_FILE.open(encoding="utf-8") as file:
+        return json.load(file)
+
+
+def save_personal(recipes: list) -> None:
+    """
+    Writes the personal recipes list to the JSON file.
+    Writes to a temporary file first, so a crash never leaves a half-written file.
+    """
+    temp_file = PERSONAL_FILE.with_suffix(".tmp")
+    temp_file.write_text(json.dumps(recipes, indent=2, ensure_ascii=False), encoding="utf-8")
+    temp_file.replace(PERSONAL_FILE)
+
+
+def find_personal(name: str):
+    """
+    Returns the personal recipe with the given name, or None.
+    """
+    return next((r for r in load_personal() if r["name"] == name), None)
+
+
+def parse_recipe(data) -> dict:
+    """
+    Validates a recipe received from a client and returns it in our recipe format.
+    Aborts with 400 BAD REQUEST if the data is invalid.
+    """
+    if not isinstance(data, dict):
+        abort(400, description="The request body must be a JSON object.")
+
+    name = data.get("name")
+    if not isinstance(name, str) or not name.strip() or "/" in name:
+        abort(400, description="'name' must be a non-empty string without '/'.")
+
+    ingredients = data.get("ingredients", {})
+    if not isinstance(ingredients, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in ingredients.items()):
+        abort(400, description="'ingredients' must be an object of ingredient: measure strings.")
+
+    recipe = dict(name=name.strip(), ingredients=ingredients)
+    for field in ("image", "video", "instructions"):
+        value = data.get(field) or ""
+        if not isinstance(value, str):
+            abort(400, description=f"'{field}' must be a string.")
+        recipe[field] = value
+    return recipe
+
+
+@app.route("/personal", methods=["POST"])
+def add_personal():
+    """
+    Saves a recipe sent as JSON to the personal list, then redirects to its page.
+    A recipe with the same name is replaced.
+    """
+    recipe = parse_recipe(request.get_json(silent=True))
+    recipes = [r for r in load_personal() if r["name"] != recipe["name"]]
+    recipes.append(recipe)
+    save_personal(recipes)
+    # 303 tells the client to follow the redirect with a GET request
+    return redirect(url_for("personal_recipe", name=recipe["name"], json=0), code=303)
+
+
+@app.route("/personal/<name>/<int:json>", methods=["GET"])
+def personal_recipe(name, json):
+    """
+    Returns a personal recipe as an HTML page (json == 0) or as JSON (json == 1).
+    """
+    if json not in (0, 1):
+        abort(404, description="The flag must be 0 (page) or 1 (JSON).")
+    recipe = find_personal(name)
+    if recipe is None:
+        abort(404, description=f"No personal recipe named {name!r}.")
+    if json == 1:
+        return jsonify(recipe)
+    return render_template("recipe.html", ingredient=None, recipe=recipe)
+
+
+@app.route("/personal/<name>", methods=["DELETE"])
+def delete_personal(name):
+    """
+    Deletes the personal recipe with the given name.
+    """
+    recipes = load_personal()
+    remaining = [r for r in recipes if r["name"] != name]
+    if len(remaining) == len(recipes):
+        abort(404, description=f"No personal recipe named {name!r}.")
+    save_personal(remaining)
+    return "", 204  # 204 NO CONTENT: success, nothing to return
+
+
+@app.route("/personal/all", methods=["GET"])
+def all_personal():
+    """
+    Returns all personal recipes as a JSON list.
+    """
+    return jsonify(load_personal())
 
 
 # EXTRA BONUS:
