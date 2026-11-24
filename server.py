@@ -53,8 +53,7 @@ def index():
     return render_template("index.html")
 
 
-# YOUR CODE HERE:
-# Make this endpoint get called when for the following routes: "/recipe/<ingredient>"
+@app.route("/recipe/<ingredient>")
 def recipe(ingredient):
     """
     Renders and returns an HTML page with a random recipe for a given main ingredient.
@@ -67,10 +66,12 @@ def recipe(ingredient):
                            recipe=get_recipe_for(ingredient))
 
 
-# YOU CODE HERE:
-# Add another endpoint:
-# Route "/recipe/<ingredient>/json" should return a JSON with the output of `get_recipe_for`.
-# Hint: `flask.jsonify()`
+@app.route("/recipe/<ingredient>/json")
+def recipe_json(ingredient):
+    """
+    Returns a random recipe for a given main ingredient as JSON.
+    """
+    return jsonify(get_recipe_for(ingredient))
 
 
 # BONUS:
