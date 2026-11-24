@@ -1,7 +1,7 @@
 import random
 
 import requests
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, abort
 
 app = Flask(__name__)
 
@@ -58,12 +58,10 @@ def recipe(ingredient):
     """
     Renders and returns an HTML page with a random recipe for a given main ingredient.
     """
-    # BONUS:
-    # If there are no meals for a given ingredient, return a 404 NOT FOUND error response.
-    # Hint: Read the documentation of flask. This is a bonus :P
-    return render_template("recipe.html",
-                           ingredient=ingredient,
-                           recipe=get_recipe_for(ingredient))
+    meal = get_recipe_for(ingredient)
+    if meal is None:
+        abort(404, description=f"No recipes found with {ingredient!r}.")
+    return render_template("recipe.html", ingredient=ingredient, recipe=meal)
 
 
 @app.route("/recipe/<ingredient>/json")
@@ -71,7 +69,10 @@ def recipe_json(ingredient):
     """
     Returns a random recipe for a given main ingredient as JSON.
     """
-    return jsonify(get_recipe_for(ingredient))
+    meal = get_recipe_for(ingredient)
+    if meal is None:
+        abort(404, description=f"No recipes found with {ingredient!r}.")
+    return jsonify(meal)
 
 
 # BONUS:
