@@ -11,27 +11,15 @@ API_URL = "https://www.themealdb.com/api/json/v1/1"
 PERSONAL_FILE = Path(__file__).with_name("personal_recipes.json")
 
 
-def get_recipe_for(main_ingredient: str) -> dict:
+def fetch_meal(meal_id: str) -> dict:
     """
-    Fetch a random recipe with a specified main ingredient.
-    The recipes are requested from "themealdb" API.
+    Fetches the full recipe of a meal from "themealdb" API and converts it to our recipe format.
     """
-    # 1. Fetch the list of meals that use `main_ingredient`
-    response = requests.get(f"{API_URL}/filter.php", params={"i": main_ingredient}, timeout=10)
-    response.raise_for_status()
-    meals = response.json()["meals"]
-    if not meals:  # The API returns {"meals": null} when nothing matches
-        return None
-
-    # 2. Choose a random meal from the list
-    meal_id = random.choice(meals)["idMeal"]
-
-    # 3. Fetch the full recipe of the chosen meal
     response = requests.get(f"{API_URL}/lookup.php", params={"i": meal_id}, timeout=10)
     response.raise_for_status()
     meal = response.json()["meals"][0]
 
-    # 4. Pair strIngredientN with strMeasureN, skipping empty slots ("" or None)
+    # Pair strIngredientN with strMeasureN, skipping empty slots ("" or None)
     ingredients = {}
     for i in range(1, 21):
         ingredient = (meal.get(f"strIngredient{i}") or "").strip()
@@ -41,11 +29,44 @@ def get_recipe_for(main_ingredient: str) -> dict:
 
     return dict(
         name=(meal["strMeal"] or "").strip(),
-        image=meal["strMealThumb"],
-        video=meal["strYoutube"],
-        instructions=meal["strInstructions"],
+        image=meal["strMealThumb"] or "",
+        video=meal["strYoutube"] or "",
+        instructions=meal["strInstructions"] or "",
         ingredients=ingredients,
     )
+
+
+def personal_with_ingredient(main_ingredient: str) -> list:
+    """
+    Returns the personal recipes that contain `main_ingredient` (case-insensitive, "_" == " ").
+    """
+    wanted = main_ingredient.replace("_", " ").strip().lower()
+    return [r for r in load_personal()
+            if wanted in (name.lower() for name in r["ingredients"])]
+
+
+def get_recipe_for(main_ingredient: str):
+    """
+    Fetch a random recipe with a specified main ingredient.
+    The recipes are requested from "themealdb" API, and the personal recipes are searched too.
+    Returns None if no recipe contains the ingredient.
+    """
+    # 1. Fetch the list of meals that use `main_ingredient`
+    response = requests.get(f"{API_URL}/filter.php", params={"i": main_ingredient}, timeout=10)
+    response.raise_for_status()
+    api_meals = response.json()["meals"] or []  # The API returns {"meals": null} when nothing matches
+
+    # 2. Choose a random recipe out of both sources, each recipe with the same chance
+    candidates = [("api", meal["idMeal"]) for meal in api_meals]
+    candidates += [("personal", recipe) for recipe in personal_with_ingredient(main_ingredient)]
+    if not candidates:
+        return None
+    source, choice = random.choice(candidates)
+
+    # 3. Personal recipes are already complete; API meals need a second request
+    if source == "personal":
+        return choice
+    return fetch_meal(choice)
 
 
 @app.route('/')
@@ -180,9 +201,6 @@ def all_personal():
     """
     return jsonify(load_personal())
 
-
-# EXTRA BONUS:
-# Change the "/recipe" endpoints above to search the personal list as well.
 
 if __name__ == '__main__':
     app.run(debug=True)
