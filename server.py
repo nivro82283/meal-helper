@@ -1,7 +1,11 @@
+import random
+
 import requests
 from flask import Flask, render_template, jsonify
 
 app = Flask(__name__)
+
+API_URL = "https://www.themealdb.com/api/json/v1/1"
 
 
 def get_recipe_for(main_ingredient: str) -> dict:
@@ -9,23 +13,35 @@ def get_recipe_for(main_ingredient: str) -> dict:
     Fetch a random recipe with a specified main ingredient.
     The recipes are requested from "themealdb" API.
     """
-    # YOUR CODE HERE:
-    # 1. Use `requests` to fetch a list of recipes with `main_ingredient`
-    #    - Here is a useful URL: https://www.themealdb.com/api/json/v1/1/filter.php?i=chicken_breast
-    #    - Hint: `response.json()`
-    # 2. Choose a random recipe from the list
-    #    - Hint: `random.choice()`
-    # 3. Use `requests` again to fetch the full recipe instructions
-    #    - Here is another useful URL: https://www.themealdb.com/api/json/v1/1/lookup.php?i=52772
-    # 4. Fill in the details of the returned object in the format below
+    # 1. Fetch the list of meals that use `main_ingredient`
+    response = requests.get(f"{API_URL}/filter.php", params={"i": main_ingredient}, timeout=10)
+    response.raise_for_status()
+    meals = response.json()["meals"]
+    if not meals:  # The API returns {"meals": null} when nothing matches
+        return None
+
+    # 2. Choose a random meal from the list
+    meal_id = random.choice(meals)["idMeal"]
+
+    # 3. Fetch the full recipe of the chosen meal
+    response = requests.get(f"{API_URL}/lookup.php", params={"i": meal_id}, timeout=10)
+    response.raise_for_status()
+    meal = response.json()["meals"][0]
+
+    # 4. Pair strIngredientN with strMeasureN, skipping empty slots ("" or None)
+    ingredients = {}
+    for i in range(1, 21):
+        ingredient = (meal.get(f"strIngredient{i}") or "").strip()
+        measure = (meal.get(f"strMeasure{i}") or "").strip()
+        if ingredient:
+            ingredients[ingredient] = measure
+
     return dict(
-        name="",
-        image="",
-        video="",
-        instructions="",
-        ingredients=dict(
-            # ingredient: measure,
-        )
+        name=(meal["strMeal"] or "").strip(),
+        image=meal["strMealThumb"],
+        video=meal["strYoutube"],
+        instructions=meal["strInstructions"],
+        ingredients=ingredients,
     )
 
 
